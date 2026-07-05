@@ -9,20 +9,32 @@ interface HeroVideoIntroProps {
 
 export default function HeroVideoIntro({ onComplete, skipped }: HeroVideoIntroProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const titleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishedRef = useRef(false);
   const [show, setShow] = useState(true);
   const [booting, setBooting] = useState(true);
-  const [videoDuration] = useState(17000);
+  const [showTitle, setShowTitle] = useState(false);
 
+  // Boot sequence: show loading for 1.8s then reveal video
   useEffect(() => {
     const t = setTimeout(() => setBooting(false), 1800);
     return () => clearTimeout(t);
   }, []);
 
+  // Show title 2s after video starts playing, then hide after 3 seconds
+  const handleVideoPlay = () => {
+    const t = setTimeout(() => {
+      setShowTitle(true);
+      const hideT = setTimeout(() => setShowTitle(false), 3000);
+      return () => clearTimeout(hideT);
+    }, 3000);
+    // store timeout id to clean up if needed
+    titleTimerRef.current = t;
+  };
+
   const finish = () => {
     if (finishedRef.current) return;
     finishedRef.current = true;
-
     setShow(false);
     setTimeout(() => {
       onComplete();
@@ -30,57 +42,57 @@ export default function HeroVideoIntro({ onComplete, skipped }: HeroVideoIntroPr
     }, 900);
   };
 
-  const startVideoPlayback = async () => {
+  /**
+   * Auto-play with audio trick:
+   * 1. Start video MUTED  → browser allows autoplay
+   * 2. Once play() resolves, immediately set muted = false
+   * Browsers permit un-muting a video that is already playing programmatically.
+   */
+  const autoPlayWithAudio = async () => {
     const video = videoRef.current;
-    if (!video || finishedRef.current || !show) return;
+    if (!video || finishedRef.current) return;
+
+    // Reset to beginning and ensure muted for initial play() call
+    video.muted = true;
+    video.volume = 1; // pre-set volume so unmute is at full volume
 
     try {
-      video.currentTime = 0;
-      video.muted = false;
-      video.volume = 1;
       await video.play();
+      // ✅ play() succeeded — now unmute immediately (no user gesture needed)
+      video.muted = false;
     } catch {
-      video.muted = true;
-      video.volume = 0;
+      // play() rejected even muted (very rare) — keep trying muted
+      try {
+        video.muted = true;
+        await video.play();
+      } catch {
+        // nothing we can do, just wait for user interaction via safety fallback
+      }
     }
   };
 
+  // Start playback as soon as component mounts
   useEffect(() => {
     if (!show) return;
-
-    void startVideoPlayback();
-
-    const handlePlayback = () => {
-      const video = videoRef.current;
-      if (video) {
-        video.muted = false;
-        video.volume = 1;
-      }
-      void startVideoPlayback();
-    };
-
-    window.addEventListener('click', handlePlayback, { passive: true, once: true });
-    window.addEventListener('touchstart', handlePlayback, { passive: true, once: true });
-    window.addEventListener('pointerdown', handlePlayback, { passive: true, once: true });
-    window.addEventListener('keydown', handlePlayback, { once: true });
-
+    void autoPlayWithAudio();
     return () => {
-      window.removeEventListener('click', handlePlayback);
-      window.removeEventListener('touchstart', handlePlayback);
-      window.removeEventListener('pointerdown', handlePlayback);
-      window.removeEventListener('keydown', handlePlayback);
+      if (titleTimerRef.current) clearTimeout(titleTimerRef.current);
     };
   }, [show]);
 
+  // Also trigger on metadata loaded (handles slow network / preload)
+  const handleMetadataLoaded = () => {
+    void autoPlayWithAudio();
+  };
+
+  // Safety fallback: force finish after 22s (covers full 17s video + boot time)
   useEffect(() => {
     if (!show) return;
-
     const fallback = setTimeout(() => {
-      if (show) finish();
-    }, videoDuration);
-
+      if (!finishedRef.current) finish();
+    }, 22000);
     return () => clearTimeout(fallback);
-  }, [show, videoDuration]);
+  }, [show]);
 
   if (skipped) return null;
 
@@ -93,7 +105,7 @@ export default function HeroVideoIntro({ onComplete, skipped }: HeroVideoIntroPr
           exit={{ opacity: 0, scale: 1.1, filter: 'blur(20px)' }}
           transition={{ duration: 0.9, ease: [0.7, 0, 0.84, 0] }}
         >
-          {/* boot sequence */}
+          {/* Boot sequence overlay */}
           <AnimatePresence>
             {booting && (
               <motion.div
@@ -128,25 +140,23 @@ export default function HeroVideoIntro({ onComplete, skipped }: HeroVideoIntroPr
             )}
           </AnimatePresence>
 
-          {/* video */}
+          {/* Video element — starts muted, auto-unmuted after play() resolves */}
           <video
             ref={videoRef}
             className="absolute inset-0 w-full h-full object-cover"
-            autoPlay
             playsInline
             preload="auto"
-            muted={false}
-            onLoadedMetadata={() => {
-              void startVideoPlayback();
-            }}
+            muted
+            onLoadedMetadata={handleMetadataLoaded}
+            onCanPlay={handleMetadataLoaded}
+            onPlay={handleVideoPlay}
             onEnded={finish}
             onError={finish}
-            poster=""
           >
             <source src="/assets/intro-video.mp4" type="video/mp4" />
           </video>
 
-          {/* overlays */}
+          {/* Overlays */}
           <div className="absolute inset-0 bg-gradient-to-b from-cyber-void/40 via-transparent to-cyber-void/80 pointer-events-none" />
           <div className="absolute inset-0 noise opacity-[0.04] pointer-events-none" />
 
@@ -161,21 +171,20 @@ export default function HeroVideoIntro({ onComplete, skipped }: HeroVideoIntroPr
             </div>
             <div className="absolute bottom-8 left-8 right-8 flex justify-between font-mono text-[10px] text-cyber-neon/60 tracking-widest">
               <span>SAICHARAN.SADA</span>
-              <span>AI & ML ENGINEER</span>
+              <span>AI &amp; ML ENGINEER</span>
             </div>
-
-            {/* scanline */}
             <div className="scanline" />
           </div>
 
-          {/* glitch title */}
+          {/* Name title — appears after boot, disappears after 3 seconds automatically */}
           <AnimatePresence>
-            {!booting && (
+            {showTitle && (
               <motion.div
                 className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.2 }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20, filter: 'blur(8px)' }}
+                transition={{ duration: 0.5 }}
               >
                 <h1
                   className="font-display text-5xl md:text-8xl font-black uppercase tracking-wider text-white text-center"
