@@ -124,7 +124,7 @@ export default function Navbar() {
 
             {/* CTA */}
             <button
-              onClick={() => go('contact')}
+              onClick={() => window.open('https://linkedin.com/in/saicharan-sada', '_blank', 'noopener,noreferrer')}
               className="hidden md:inline-flex items-center gap-2 px-4 py-2 font-mono text-[10px] uppercase tracking-widest text-cyber-pink border border-cyber-pink/50 transition-all hover:scale-105"
               style={{
                 clipPath: 'polygon(8% 0, 100% 0, 100% 70%, 92% 100%, 0 100%, 0 30%)',
