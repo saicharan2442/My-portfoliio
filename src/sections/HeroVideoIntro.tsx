@@ -9,7 +9,7 @@ import { scrollToId } from "../hooks/useSmoothScroll";
 // ---------------------------------------------------------------------------
 
 const VIDEO_URL =
-  "/assets/intro-video2.mp4";
+  "/assets/intro-video.mp4";
 
 interface HeroVideoIntroProps {
   onComplete: () => void;
